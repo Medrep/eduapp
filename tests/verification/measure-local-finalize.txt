@@ -1,0 +1,144 @@
+import { execFileSync } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { basename } from "node:path";
+import { performance } from "node:perf_hooks";
+
+const [workdir, ...files] = process.argv.slice(2);
+const api = "http://127.0.0.1:54321";
+const ownerOrigin = "http://127.0.0.1:4174";
+const edgeContainer = "supabase_edge_runtime_moja-nauka-local";
+const dbContainer = "supabase_db_moja-nauka-local";
+const limit = 20 * 1024 * 1024;
+const uuidPattern = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/;
+if (!workdir || !files.length) throw new Error("Provide a local workdir and one or more synthetic HTML files");
+
+function run(command, args, extra = {}) {
+  try {
+    return execFileSync(command, args, { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"], ...extra });
+  } catch {
+    throw new Error(command + " failed during the local experiment");
+  }
+}
+
+function loopbackUrl(value, routePrefix) {
+  let url;
+  try { url = new URL(value); } catch { throw new Error("Invalid returned grant URL"); }
+  if (url.origin !== api || !url.pathname.startsWith(routePrefix) ||
+      url.username || url.password || url.hash) throw new Error("Grant URL outside the local Storage path");
+  return url;
+}
+
+async function request(label, url, options) {
+  let response;
+  try {
+    response = await fetch(url, { ...options, redirect: "error", signal: AbortSignal.timeout(90_000) });
+  } catch {
+    throw new Error(label + " failed to reach the local gateway");
+  }
+  return response;
+}
+
+async function json(label, url, options) {
+  const response = await request(label, url, options);
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data) {
+    const code = data?.error?.code;
+    const suffix = typeof code === "string" && /^[A-Z_0-9]+$/.test(code) ? " " + code : "";
+    throw new Error(label + " returned HTTP " + response.status + suffix);
+  }
+  return { status: response.status, data };
+}
+
+function counters() {
+  try {
+    const text = run("docker", ["exec", edgeContainer, "sh", "-c",
+      "cat /sys/fs/cgroup/memory.current /sys/fs/cgroup/memory.peak /sys/fs/cgroup/cpu.stat"]);
+    const [memory, peak, usage] = text.trim().split("\n");
+    const result = { memoryBytes: Number(memory), peakBytes: Number(peak), cpuMicroseconds: Number(usage?.split(" ")[1]) };
+    return Object.values(result).every(Number.isSafeInteger) ? result : null;
+  } catch {
+    return null;
+  }
+}
+
+async function main() {
+  const status = JSON.parse(run("supabase", ["status", "--workdir", workdir, "-o", "json"], {
+    env: { ...process.env, DO_NOT_TRACK: "1", SUPABASE_TELEMETRY_DISABLED: "1" },
+  }));
+  if (!status.ANON_KEY || !status.SERVICE_ROLE_KEY) throw new Error("Local Auth credentials unavailable");
+
+  const post = (headers, body) => ({ method: "POST", headers: { "content-type": "application/json", ...headers },
+    body: JSON.stringify(body) });
+  const email = "s3-benchmark-" + randomUUID() + "@example.com";
+  const password = "Aa1!" + randomUUID();
+  const user = (await json("disposable owner creation", api + "/auth/v1/admin/users",
+    post({ apikey: status.SERVICE_ROLE_KEY, authorization: "Bearer " + status.SERVICE_ROLE_KEY },
+      { email, password, email_confirm: true }))).data;
+  if (!uuidPattern.test(user.id)) throw new Error("Unusable disposable Auth user ID");
+  run("docker", ["exec", "-i", dbContainer, "psql", "-Xq", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", "postgres"],
+    { input: "insert into public.admin_users(user_id, active) values ('" + user.id + "', true);\n" });
+
+  const session = (await json("owner sign-in", api + "/auth/v1/token?grant_type=password",
+    post({ apikey: status.ANON_KEY }, { email, password }))).data;
+  if (typeof session.access_token !== "string") throw new Error("No owner session");
+  const auth = { apikey: status.ANON_KEY, authorization: "Bearer " + session.access_token, origin: ownerOrigin };
+  const admin = api + "/functions/v1/admin-api/admin/v1";
+  const { subjects } = (await json("GET subjects", admin + "/subjects", { headers: auth })).data;
+  const subjectId = subjects.find((subject) => subject.slug === "przyroda")?.id;
+  if (!uuidPattern.test(subjectId)) throw new Error("Missing seeded subject");
+
+  for (const path of files) {
+    const fileName = basename(path);
+    const bytes = readFileSync(path);
+    if (bytes.length !== limit) throw new Error("Synthetic file does not match the exact upload limit");
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    const created = (await json("create disposable lesson", admin + "/lessons",
+      post(auth, { subjectId, title: "Local benchmark " + fileName }))).data;
+    const lesson = created.lesson?.id;
+    if (!uuidPattern.test(lesson)) throw new Error("Missing disposable lesson ID");
+    const resource = admin + "/lessons/" + lesson;
+    const initialized = await json("upload-init", resource + "/upload-init",
+      post(auth, { filename: fileName, sha256, sizeBytes: bytes.length, contentType: "text/html" }));
+    const target = loopbackUrl(initialized.data.uploadUrl, "/storage/v1/object/upload/sign/lesson-staging/");
+    const putStart = performance.now();
+    const uploaded = await request("signed upload", target, { method: "PUT", body: bytes,
+      headers: { "content-type": "text/html", origin: ownerOrigin } });
+    if (!uploaded.ok) throw new Error("Signed upload returned HTTP " + uploaded.status);
+    const uploadElapsedMs = Math.round(performance.now() - putStart);
+    await uploaded.arrayBuffer();
+
+    const before = counters();
+    const finalizeStart = performance.now();
+    const final = await json("upload-finalize", resource + "/upload-finalize",
+      post(auth, { uploadId: initialized.data.uploadId }));
+    const finalizeElapsedMs = Math.round(performance.now() - finalizeStart);
+    const after = counters();
+    const version = final.data.version;
+    if (!version || !uuidPattern.test(version.id) || version.sha256 !== sha256 || version.sizeBytes !== bytes.length) {
+      throw new Error("Finalized version integrity metadata mismatched");
+    }
+    const grant = await json("owner historical version grant", resource + "/versions/" + version.id + "/download-url",
+      post(auth, {}));
+    const signed = loopbackUrl(grant.data.signedUrl, "/storage/v1/object/sign/lesson-bundles/");
+    const downloaded = await request("signed immutable download", signed, { headers: { origin: ownerOrigin } });
+    if (!downloaded.ok) throw new Error("Signed download returned HTTP " + downloaded.status);
+    const verified = Buffer.from(await downloaded.arrayBuffer());
+    if (!verified.equals(bytes)) throw new Error("Final immutable bytes differ from the signed upload");
+
+    console.log(JSON.stringify({ file: fileName, sizeBytes: bytes.length, sha256, initStatus: initialized.status,
+      signedPutStatus: uploaded.status, finalizeStatus: final.status, signedGetStatus: downloaded.status,
+      uploadElapsedMs, finalizeElapsedMs, edgeContainerBefore: before, edgeContainerAfter: after,
+      edgeContainerCpuDeltaMicroseconds: before && after ? after.cpuMicroseconds - before.cpuMicroseconds : null,
+      immutableBytesMatch: true }));
+  }
+
+  const logout = await request("disposable owner logout", api + "/auth/v1/logout",
+    { method: "POST", headers: { apikey: status.ANON_KEY, authorization: "Bearer " + session.access_token } });
+  if (!logout.ok) throw new Error("Disposable owner logout returned HTTP " + logout.status);
+}
+
+try { await main(); } catch (error) {
+  console.error(error instanceof Error ? error.message : "Local finalize experiment failed");
+  process.exitCode = 1;
+}

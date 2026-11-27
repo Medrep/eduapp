@@ -1,0 +1,3 @@
+import { defineConfig } from "@playwright/test";
+import matrix from "./playwright.matrix.config.ts";
+export default defineConfig({ ...matrix, webServer: [], workers: 1 });

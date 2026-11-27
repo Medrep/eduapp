@@ -1,0 +1,128 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "installCommand": "if [ ! -f pnpm-workspace.yaml ]; then cd ../.. || exit 1; fi; test -f pnpm-workspace.yaml && npx --yes pnpm@11.25.0 install --frozen-lockfile",
+  "buildCommand": "npx --yes pnpm@11.25.0 run build",
+  "outputDirectory": "dist",
+  "routes": [
+    {
+      "src": "^/__(?:offline_lesson|preview_lesson)(?:/.*)?$",
+      "status": 404,
+      "headers": {
+        "Referrer-Policy": "no-referrer",
+        "X-Content-Type-Options": "nosniff",
+        "Strict-Transport-Security": "max-age=31536000",
+        "Permissions-Policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "Cache-Control": "no-store",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "X-Frame-Options": "DENY"
+      }
+    },
+    {
+      "src": "^/__viewer/child-4d6bb5202b2dcb0e71537745bd0cac4498ffaadc6db1eca6b00c34a7f54a10a4\\.html$",
+      "methods": [
+        "GET",
+        "HEAD"
+      ],
+      "headers": {
+        "Referrer-Policy": "no-referrer",
+        "X-Content-Type-Options": "nosniff",
+        "Strict-Transport-Security": "max-age=31536000",
+        "Permissions-Policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "Content-Type": "text/html; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; media-src data:; connect-src 'none'; worker-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'",
+        "X-Frame-Options": "SAMEORIGIN",
+        "Cache-Control": "public, max-age=31536000, immutable"
+      },
+      "continue": true
+    },
+    {
+      "src": "^/(?:index\\.html)?$",
+      "methods": [
+        "GET",
+        "HEAD"
+      ],
+      "headers": {
+        "Referrer-Policy": "no-referrer",
+        "X-Content-Type-Options": "nosniff",
+        "Strict-Transport-Security": "max-age=31536000",
+        "Permissions-Policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "Cache-Control": "no-cache",
+        "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; manifest-src 'self'; connect-src 'self' https://spvzlwyqytytwvvfrwqs.supabase.co; worker-src 'self'; frame-src https://moja-nauka-child-staging.vercel.app/__viewer/child-4d6bb5202b2dcb0e71537745bd0cac4498ffaadc6db1eca6b00c34a7f54a10a4.html; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'none'",
+        "X-Frame-Options": "DENY"
+      },
+      "continue": true
+    },
+    {
+      "src": "^/$",
+      "dest": "/index.html",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "src": "^/sw\\.js$",
+      "methods": [
+        "GET",
+        "HEAD"
+      ],
+      "headers": {
+        "Referrer-Policy": "no-referrer",
+        "X-Content-Type-Options": "nosniff",
+        "Strict-Transport-Security": "max-age=31536000",
+        "Permissions-Policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "Content-Type": "text/javascript; charset=utf-8",
+        "Cache-Control": "no-cache",
+        "Service-Worker-Allowed": "/"
+      },
+      "continue": true
+    },
+    {
+      "src": "^/assets/[A-Za-z0-9_-]+-[A-Za-z0-9_-]{8}\\.(?:js|css)$",
+      "methods": [
+        "GET",
+        "HEAD"
+      ],
+      "headers": {
+        "Referrer-Policy": "no-referrer",
+        "X-Content-Type-Options": "nosniff",
+        "Strict-Transport-Security": "max-age=31536000",
+        "Permissions-Policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "Cache-Control": "public, max-age=31536000, immutable"
+      },
+      "continue": true
+    },
+    {
+      "src": "^/(?:manifest\\.webmanifest|icons/icon-(?:192|512)\\.png)$",
+      "methods": [
+        "GET",
+        "HEAD"
+      ],
+      "headers": {
+        "Referrer-Policy": "no-referrer",
+        "X-Content-Type-Options": "nosniff",
+        "Strict-Transport-Security": "max-age=31536000",
+        "Permissions-Policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "Cache-Control": "no-cache"
+      },
+      "continue": true
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": ".*",
+      "status": 404,
+      "headers": {
+        "Referrer-Policy": "no-referrer",
+        "X-Content-Type-Options": "nosniff",
+        "Strict-Transport-Security": "max-age=31536000",
+        "Permissions-Policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "Cache-Control": "no-store",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "X-Frame-Options": "DENY"
+      }
+    }
+  ]
+}

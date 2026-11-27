@@ -1,0 +1,21 @@
+project_id = "moja-nauka-local"
+
+[api]
+port = 54321
+
+[db]
+port = 54322
+
+[auth]
+enable_signup = false
+
+[storage]
+file_size_limit = "20MiB"
+
+# Both handlers enforce authentication and return the v1 error/CORS contract.
+# Device credentials are opaque bearer tokens rather than platform JWTs.
+[functions.admin-api]
+verify_jwt = false
+
+[functions.device-api]
+verify_jwt = false

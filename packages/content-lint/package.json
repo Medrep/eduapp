@@ -1,0 +1,10 @@
+{
+  "name": "@moja-nauka/content-lint",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": {
+    "@moja-nauka/contracts": "workspace:*"
+  }
+}

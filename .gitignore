@@ -1,0 +1,44 @@
+# Dependencies and generated builds
+node_modules/
+dist/
+.pnpm-store/
+.vite/
+coverage/
+*.tsbuildinfo
+
+# Browser runs and local review material
+playwright-report/
+test-results/
+/.local-review/
+/local-evidence/
+/review-evidence/
+/docs/verification/evidence/
+/docs/verification/g4-*/
+/docs/verification/hosted-g3/
+/docs/verification/s5-preview/
+/docs/verification/s5-toolbar-correction/
+/docs/verification/github-vercel-migration/
+
+# Local secrets and provider state; retain blank templates
+.env
+.env.*
+!.env.example
+.vercel/
+supabase/.branches/
+supabase/.temp/
+*.pem
+*.key
+*.p12
+*.pfx
+.npmrc.local
+
+# Workstation files and temporary diagnostics
+.DS_Store
+*.log
+*.tmp
+*.swp
+*~
+
+# Generated supplemental crash harness
+/playwright.crash.config.ts
+/tests/browser/crash-s2-diagnostic.spec.ts

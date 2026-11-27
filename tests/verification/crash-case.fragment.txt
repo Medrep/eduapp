@@ -1,0 +1,71 @@
+
+test("AT-05 Chromium browser-process crash during activation preserves the previous verified lesson", async ({ playwright, browserName }, testInfo) => {
+  test.skip(browserName !== "chromium", "Chromium CDP is required for an actual browser-process crash");
+  test.setTimeout(45_000);
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const profile = await mkdtemp(join(tmpdir(), "moja-nauka-s2-crash-"));
+  const { viewport, deviceScaleFactor, isMobile, hasTouch, userAgent } = testInfo.project.use;
+  const launch = () => playwright.chromium.launchPersistentContext(profile, {
+    headless: true, viewport, deviceScaleFactor, isMobile, hasTouch, userAgent,
+  });
+  const first = lesson(1, 1);
+  const next = lesson(1, 2);
+  const mock = new DeviceFixture(first);
+  mock.add(next);
+  let context = await launch();
+
+  try {
+    let page = context.pages()[0] ?? await context.newPage();
+    await mock.serve(page);
+    await page.goto(origin);
+    await pair(page);
+    await ready(page, 1, 1);
+    await waitIdle(page);
+    await page.evaluate(target => {
+      const put = IDBObjectStore.prototype.put;
+      IDBObjectStore.prototype.put = function (value, key) {
+        const request = Reflect.apply(put, this, key === undefined ? [value] : [value, key]);
+        if (this.name === "installations" && value?.installedVersionId === target) {
+          console.info("S2_CRASH_AFTER_BOTH_INDEXEDDB_WRITES_QUEUED");
+          // The Node-side CDP client crashes the browser before this JS task and its open transaction advance.
+          const deadline = performance.now() + 10_000;
+          while (performance.now() < deadline) { /* Wait for browser-process crash. */ }
+        }
+        return request;
+      };
+    }, next.meta.version.id);
+    const cdp = await context.newCDPSession(page);
+    const queued = page.waitForEvent("console", { predicate: message =>
+      message.text() === "S2_CRASH_AFTER_BOTH_INDEXEDDB_WRITES_QUEUED", timeout: 15_000 });
+    const stopped = context.waitForEvent("close", { timeout: 20_000 });
+    mock.catalog = snapshot(2, next);
+    await sync(page);
+    await queued;
+    void cdp.send("Browser.crash").catch(() => undefined);
+    await stopped;
+
+    context = await launch();
+    await context.setOffline(true);
+    page = context.pages()[0] ?? await context.newPage();
+    await mock.serve(page);
+    await page.goto(origin);
+    await ready(page, 0, 1);
+    const pointer = await readStore(page, "installations", first.meta.id);
+    expect(pointer).toMatchObject({ installedVersionId: first.meta.version.id });
+    expect(await readStore(page, "lessonBytes", [next.meta.id, next.meta.version.id])).toBeUndefined();
+    await openSubject(page);
+    await openLesson(page, "Lekcja 1", "Lekcja 1, wersja 1");
+    await returnToLibrary(page);
+    await context.setOffline(false);
+    await ready(page, 1, 1);
+    await openLesson(page, "Lekcja 1", "Lekcja 1, wersja 2");
+    console.log(JSON.stringify({ profile: testInfo.project.name, browserProcessCrash: true,
+      bothRequestsQueuedInOpenTransaction: true, retainedVerifiedV1: true,
+      partialV2Record: false, recoveredV2: true }));
+  } finally {
+    await context.close().catch(() => undefined);
+    await rm(profile, { force: true, recursive: true });
+  }
+});

@@ -1,0 +1,34 @@
+{
+  "name": "moja-nauka",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.25.0",
+  "engines": {
+    "node": "24.22.3",
+    "pnpm": "11.25.0"
+  },
+  "scripts": {
+    "dev:child": "pnpm --filter @moja-nauka/child dev",
+    "dev:admin": "pnpm --filter @moja-nauka/admin dev",
+    "preview:child": "pnpm --filter @moja-nauka/child preview",
+    "preview:admin": "pnpm --filter @moja-nauka/admin preview",
+    "lint": "eslint .",
+    "typecheck": "tsc --project tsconfig.json",
+    "test:unit": "node --test packages/content-lint/src/lesson-byte-length.test.ts packages/contracts/src/*.test.ts",
+    "test:browser": "playwright test",
+    "build": "pnpm --recursive --if-present run build",
+    "test:integration": "node --test tests/integration/*.test.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.64.0",
+    "@types/node": "24.13.5",
+    "@types/react": "19.2.18",
+    "eslint": "10.15.0",
+    "react": "19.2.8",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.71.1",
+    "vite": "8.3.4"
+  }
+}

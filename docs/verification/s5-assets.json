@@ -1,0 +1,83 @@
+{
+  "description": "Accepted S5 public static asset integrity reference; build with the original public frontend configuration for exact reproduction. Deployment receipts remain in the local archive.",
+  "assets": [
+    {
+      "role": "child",
+      "file": "__viewer/child-4d6bb5202b2dcb0e71537745bd0cac4498ffaadc6db1eca6b00c34a7f54a10a4.html",
+      "bytes": 580,
+      "sha256": "4d6bb5202b2dcb0e71537745bd0cac4498ffaadc6db1eca6b00c34a7f54a10a4"
+    },
+    {
+      "role": "child",
+      "file": "assets/index-B0TXNJM2.css",
+      "bytes": 1340,
+      "sha256": "2657235acf7c1ddc5d08fb44abf2a9421835bd6f53d34cea0f636cab4b9f2e8a"
+    },
+    {
+      "role": "child",
+      "file": "assets/index-Ds-5EV10.js",
+      "bytes": 227775,
+      "sha256": "df132a0c48c68e4f9cc4200e9e0f9889e6382686e6f7ec38028ca54fcb714855"
+    },
+    {
+      "role": "child",
+      "file": "icons/icon-192.png",
+      "bytes": 547,
+      "sha256": "2b789aa75a284b00c963714c3c5c19fbc0d9b1548c07aacceb487b5af7ffe3bd"
+    },
+    {
+      "role": "child",
+      "file": "icons/icon-512.png",
+      "bytes": 2260,
+      "sha256": "28773f39f83f5add21af3cdc600c0a1a6710a8594ef2a356e4488a8f95d4a578"
+    },
+    {
+      "role": "child",
+      "file": "index.html",
+      "bytes": 616,
+      "sha256": "9c50be0aa1006419f4592f193a0109735fe86333084c1fa9247f407f2643a70d"
+    },
+    {
+      "role": "child",
+      "file": "manifest.webmanifest",
+      "bytes": 385,
+      "sha256": "54aa142de1e9ece4ea5787d619126b617b9e91869e286dedc335a740f28ad3c4"
+    },
+    {
+      "role": "child",
+      "file": "sw.js",
+      "bytes": 7034,
+      "sha256": "b4e16ccd63c5742c3885d8b4d4e6043cbb40810524f74e33751c055eff159b18"
+    },
+    {
+      "role": "admin",
+      "file": "__viewer/admin-4192ce6d6ca53618bb4b4536d8632bfc4d3339a2fb9d75f3b64f9a35aeafdf8f.html",
+      "bytes": 580,
+      "sha256": "4192ce6d6ca53618bb4b4536d8632bfc4d3339a2fb9d75f3b64f9a35aeafdf8f"
+    },
+    {
+      "role": "admin",
+      "file": "assets/index-BhM3W8yO.css",
+      "bytes": 2780,
+      "sha256": "75b6e90871c521a2845cfa59a425344783dd4f324f4f47b093623909e51a2af1"
+    },
+    {
+      "role": "admin",
+      "file": "assets/index-BylLHXmp.js",
+      "bytes": 232243,
+      "sha256": "00c6f3c6d70a2dae05f61e558147bbf478eb072d702214297221d8cc3bd5d926"
+    },
+    {
+      "role": "admin",
+      "file": "index.html",
+      "bytes": 418,
+      "sha256": "eb96dca7dcb8cff00cc9b044a76ee919be8b6a91cd1ae33274598d324fa09f76"
+    },
+    {
+      "role": "admin",
+      "file": "sw.js",
+      "bytes": 6268,
+      "sha256": "ec605f552e54be06261007bb6a40de5d4eb2722087819d64985972de321376a8"
+    }
+  ]
+}

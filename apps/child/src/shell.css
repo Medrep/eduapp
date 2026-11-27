@@ -1,0 +1,128 @@
+:root {
+  font-family: system-ui, sans-serif;
+  line-height: 1.5;
+  color: #1a382e;
+  background: #f5f7ef;
+}
+
+body {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+main {
+  box-sizing: border-box;
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: clamp(1.5rem, 6vw, 4rem) clamp(1rem, 4vw, 1.5rem);
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(2rem, 6vw, 3rem);
+}
+
+p {
+  margin: 0.5rem 0 0;
+}
+
+label,
+input {
+  display: block;
+  margin-block: 0.75rem;
+}
+
+button {
+  min-width: 44px;
+  max-width: 100%;
+  margin-block: 0.5rem;
+  padding-inline: 1rem;
+}
+
+.proof-frame {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  min-height: 70vh;
+  border: 1px solid currentColor;
+  background: white;
+}
+
+button,
+input {
+  box-sizing: border-box;
+  min-height: 48px;
+  font: inherit;
+}
+
+button,
+summary {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+}
+
+:focus-visible {
+  outline: 3px solid #285c50;
+  outline-offset: 3px;
+}
+
+input {
+  padding-inline: 0.75rem;
+  max-width: 100%;
+}
+
+details,
+.notice,
+.sync-panel {
+  margin-block: 1rem;
+}
+
+details summary {
+  box-sizing: border-box;
+  display: list-item;
+  min-height: 44px;
+  padding-block: 0.5rem;
+}
+
+.subject-list,
+.lesson-list {
+  list-style: none;
+  padding: 0;
+}
+
+.subject-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(12rem, 100%), 1fr));
+  gap: 0.75rem;
+}
+
+.subject-list button {
+  text-align: start;
+  width: 100%;
+  white-space: normal;
+}
+
+.subject-list span {
+  display: block;
+}
+
+.lesson-list li {
+  border-block-start: 1px solid #a1b3a6;
+  padding-block: 1rem;
+}
+
+.lesson-list h3 {
+  margin: 0;
+}
+
+.viewer-shell {
+  max-width: 72rem;
+  padding-block: 1.5rem;
+}
+
+.viewer header {
+  margin-block-end: 1rem;
+}
