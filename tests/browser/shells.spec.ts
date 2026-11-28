@@ -18,8 +18,10 @@ test("the child shell loads on its own origin and registers its worker", async (
     scope: "/",
     display: "standalone",
     icons: [
-      { src: "/icons/icon-192.png", sizes: "192x192" },
-      { src: "/icons/icon-512.png", sizes: "512x512" },
+      { src: "/icons/icon-192.png", sizes: "192x192", purpose: "any" },
+      { src: "/icons/icon-512.png", sizes: "512x512", purpose: "any" },
+      { src: "/icons/icon-maskable-192.png", sizes: "192x192", purpose: "maskable" },
+      { src: "/icons/icon-maskable-512.png", sizes: "512x512", purpose: "maskable" },
     ],
   });
 

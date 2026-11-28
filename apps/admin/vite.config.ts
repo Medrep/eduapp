@@ -16,6 +16,8 @@ export default defineConfig(({ mode }) => {
       __SUPABASE_ORIGIN__: JSON.stringify(origin),
       __ADMIN_PUBLISHABLE_KEY__: JSON.stringify(publishableKey),
     },
-    plugins: [...shell.plugins, pwaWorker("src/sw.ts", wrapper, ["/"])],
+    plugins: [...shell.plugins, pwaWorker("src/sw.ts", wrapper, [
+        "/", "/icons/bright-pages.svg", "/favicon.svg", "/favicon.ico"
+      ])],
   };
 });

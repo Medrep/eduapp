@@ -23,6 +23,7 @@ const configs = Object.fromEntries(roles.map(role => {
 const mime: Record<string, string> = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8", ".webmanifest": "application/manifest+json", ".png": "image/png",
+  ".svg": "image/svg+xml", ".ico": "image/x-icon",
 };
 
 function route(role: ViewerRole, pathname: string, method: string) {
@@ -158,9 +159,31 @@ try {
         assert.equal(denied.status, 404);
         assert.doesNotMatch(denied.text, /id="root"/);
       }
+      // Fetch in Chromium so the loopback hostname mapping applies to these checks.
+      const brand = await page.evaluate(async () => {
+        const response = await fetch("/icons/bright-pages.svg");
+        const favicons = await Promise.all(["/favicon.svg", "/favicon.ico"].map(async file => (await fetch(file)).status));
+        return { status: response.status, mime: response.headers.get("content-type"),
+          cache: response.headers.get("cache-control"), favicons };
+      });
+      assert.deepEqual(brand, { status: 200, mime: "image/svg+xml", cache: "no-cache", favicons: [200, 200] });
       if (role === "child") {
         const manifest = await page.evaluate(async () => (await fetch("/manifest.webmanifest")).json());
         assert.deepEqual([manifest.scope, manifest.start_url, manifest.display], ["/", "/", "standalone"]);
+        assert.equal(manifest.icons.length, 4);
+        for (const size of [192,512]) {
+          for (const purpose of ["any","maskable"]) {
+            const path = `/icons/icon-${purpose === "maskable" ? "maskable-" : ""}${size}.png`;
+            assert.ok(manifest.icons.some((icon: { src: string; purpose: string; sizes: string }) =>
+              icon.src === path && icon.purpose === purpose && icon.sizes === `${size}x${size}`));
+            const icon = await page.evaluate(async url => {
+              const response = await fetch(url);
+              const bytes = new DataView(await response.arrayBuffer());
+              return { status: response.status, width: bytes.getUint32(16), height: bytes.getUint32(20) };
+            }, path);
+            assert.deepEqual(icon, { status: 200, width: size, height: size });
+          }
+        }
         await context.setOffline(true);
         await page.reload();
         assert.equal(await page.getByRole("heading", { name: "Moja Nauka", exact: true }).count(), 1);

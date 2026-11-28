@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { pathToFileURL } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 import type { AdminLesson, AdminSubject, Family } from "../../packages/contracts/src/admin.ts";
 
@@ -42,7 +43,7 @@ const version = {
   createdAt: now,
 };
 
-async function mockOwnerApi(page: Page) {
+async function mockOwnerApi(page: Page, lessons = [lesson]) {
   await page.route(backend + "/**", async route => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
@@ -60,7 +61,7 @@ async function mockOwnerApi(page: Page) {
       const data: Record<string, unknown> = {
         token: { access_token: "fixture.session.token", expires_at: Math.floor(Date.now() / 1000) + 3600 },
         subjects: { subjects: [subject] },
-        lessons: { lessons: [lesson] },
+        lessons: { lessons },
         families: { families: [family] },
         devices: { devices: [] },
         versions: { versions: [version] },
@@ -119,7 +120,7 @@ test("UX-01 configured owner panel supports enlarged layouts and keyboard transi
   await edit.focus();
   await edit.press("Enter");
   await expect(page.getByRole("heading", { name: lesson.title })).toBeFocused();
-  await expect(page.getByLabel("Tytuł")).toHaveValue(lesson.title);
+  await expect(page.getByRole("textbox", { name: "Tytuł", exact: true })).toHaveValue(lesson.title);
   await expect(page.getByRole("checkbox", { name: "Dom" })).toBeChecked();
   await auditLayout(page);
   for (const viewport of [{ width: 712, height: 1138 }, { width: 1138, height: 712 }]) {
@@ -149,11 +150,10 @@ test("UX-01 configured owner panel supports enlarged layouts and keyboard transi
   await page.clock.setSystemTime(new Date());
   await preview.press("Enter");
   await expect(close).toBeFocused();
-  const title = page.getByLabel("Tytuł");
-  await title.focus();
+  await expect(page.getByRole("textbox", { name: "Tytuł", exact: true })).toBeHidden();
   await page.clock.fastForward(10 * 60_000 + 1000);
   await expect(close).toHaveCount(0);
-  await expect(title).toBeFocused();
+  await expect(preview).toBeFocused();
   const back = page.getByRole("button", { name: "Wróć do listy lekcji" });
   await back.focus();
   await back.press("Enter");
@@ -163,4 +163,174 @@ test("UX-01 configured owner panel supports enlarged layouts and keyboard transi
   await logout.press("Enter");
   await expect(dashboardHeading).toBeFocused();
   await expect(email).toBeVisible();
+});
+
+test("Admin library filters the loaded catalog and protects unsaved work at the approved sizes", async ({ page }, testInfo) => {
+  const visualRoot = process.env.EDUAPP_ADMIN_REFERENCE_DIR;
+  const entries: AdminLesson[] = Array.from({ length: 99 }, (_, index) => ({
+    ...lesson, id: `6e64c984-c836-4371-a01a-${String(index + 1).padStart(12, "0")}`,
+    title: `Ćwiczenie ${String(index + 1).padStart(2, "0")}`, status: "draft", activeVersionId: null, publishedAt: null,
+  }));
+  const viewports = [
+    { name: "desktop", width: 1440, height: 900 }, { name: "laptop", width: 1280, height: 800 },
+    { name: "tablet-portrait", width: 800, height: 1280 }, { name: "mobile", width: 390, height: 844 },
+    { name: "min360", width: 360, height: 844 },
+  ];
+  async function compare(layout: string) {
+    for (const { name, width, height } of viewports) {
+      await page.setViewportSize({ width, height });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth === innerWidth)).toBe(true);
+      if (visualRoot) {
+        await page.screenshot({ path: testInfo.outputPath(`${layout}-${name}-runtime.png`) });
+        const reference = await page.context().newPage();
+        await reference.setViewportSize({ width, height });
+        await reference.goto(pathToFileURL(`${visualRoot}/screens/${layout}-${name}.svg`).href);
+        await reference.screenshot({ path: testInfo.outputPath(`${layout}-${name}-reference.png`) });
+        await reference.close();
+      }
+    }
+  }
+
+  await mockOwnerApi(page, [lesson, ...entries]);
+  const reads: string[] = [];
+  page.on("request", request => {
+    if (request.method() === "GET" && request.url().startsWith(backend)) reads.push(request.url());
+  });
+  await page.goto(admin);
+  await expect(page.getByRole("heading", { name: "Zaloguj się" })).toBeVisible();
+  await compare("login-normal");
+  await page.getByLabel("E-mail").fill("operator@example.invalid");
+  await page.getByLabel("Hasło").fill("fixture-password");
+  await page.getByRole("button", { name: "Zaloguj", exact: true }).click();
+
+  const table = page.getByRole("table", { name: "Biblioteka lekcji" });
+  await expect(table.locator("tbody tr")).toHaveCount(100);
+  const count = reads.length;
+  await page.getByLabel("Przedmiot", { exact: true }).selectOption(subject.id);
+  await page.getByLabel("Status", { exact: true }).selectOption("published");
+  await expect(table.locator("tbody tr")).toHaveCount(1);
+  await page.getByLabel("Szukaj lekcji").fill("Ł".repeat(6).toLowerCase());
+  await expect(table.getByRole("heading", { name: lesson.title })).toBeVisible();
+  await page.getByLabel("Szukaj lekcji").fill("Brak wyników");
+  await expect(page.getByText("Nie ma lekcji pasujących do wyszukiwania.")).toBeVisible();
+  await page.getByRole("button", { name: "Wyczyść filtry" }).click();
+  await page.getByLabel("Sortowanie").selectOption("title");
+  await expect(table.locator("tbody tr").first()).toContainText("Ćwiczenie 01");
+  expect(reads).toHaveLength(count);
+  await page.getByLabel("Szukaj lekcji").fill("Ćwiczenie 0");
+  await expect(table.locator("tbody tr")).toHaveCount(9);
+  await compare("library-normal");
+
+  await page.getByRole("button", { name: "Nowa lekcja" }).click();
+  await expect(page.getByRole("heading", { name: "Nowa lekcja" })).toBeFocused();
+  await page.getByRole("textbox", { name: "Tytuł", exact: true }).fill("Szkic do zachowania");
+  await page.locator(".create-lesson").getByRole("combobox", { name: /^Przedmiot/ }).selectOption(subject.id);
+  await page.getByLabel("Udostępnij").selectOption("all");
+  await page.getByRole("button", { name: "Zapisz szkic" }).click();
+  const all = page.getByRole("dialog", { name: "Udostępnić wszystkim rodzinom?" });
+  await expect(all.getByRole("button", { name: "Anuluj" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Zapisz szkic" })).toBeFocused();
+  await expect(page.getByRole("textbox", { name: "Tytuł", exact: true })).toHaveValue("Szkic do zachowania");
+  await page.getByRole("button", { name: "Przedmioty", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Odrzuć zmiany" }).click();
+  await expect(page.getByRole("heading", { name: "Przedmioty" })).toBeFocused();
+  await page.getByRole("button", { name: "Archiwizuj przedmiot" }).click();
+  await expect(page.getByRole("dialog").getByRole("button", { name: "Anuluj" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Archiwizuj przedmiot" })).toBeFocused();
+  await compare("subjects-normal");
+  await page.getByRole("button", { name: "Rodziny i urządzenia" }).click();
+  await expect(page.getByRole("heading", { name: "Rodziny i urządzenia" })).toBeFocused();
+  await compare("families-normal");
+});
+
+test("Admin draft upload, validation, publish, rollback and device revocation use the existing contracts", async ({ page }) => {
+  const id = "6e64c984-c836-4371-a01a-000000009001";
+  const uploadId = "6e64c984-c836-4371-a01a-000000009002";
+  const device = { id: "6e64c984-c836-4371-a01a-000000009003", familyId: family.id, label: "Tablet testowy", lastSeenAt: null, revokedAt: null };
+  let draft: AdminLesson = { ...lesson, id, title: "Lekcja robocza", status: "draft", activeVersionId: null, publishedAt: null };
+  const first = { ...version, id: "6e64c984-c836-4371-a01a-000000009004" };
+  const latest = { ...version, id: uploadId, versionNumber: 2 };
+  const operations: string[] = [];
+  await mockOwnerApi(page, []);
+  await page.route(backend + "/**", async route => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const resource = url.pathname.split("/").at(-1);
+    const method = request.method();
+    const headers = { "access-control-allow-origin": admin, "access-control-allow-methods": "GET, POST, PUT, PATCH, OPTIONS",
+      "access-control-allow-headers": "apikey, authorization, content-type" };
+    if (method === "OPTIONS") { await route.fulfill({ status: 204, headers }); return; }
+    let json: unknown;
+    if (resource === "lessons" && method === "POST") {
+      expect(request.postDataJSON()).toMatchObject({ title: draft.title, familyIds: [family.id] });
+      operations.push("draft");
+      json = { lesson: draft };
+    } else if (resource === "versions" && url.pathname.includes(id)) {
+      json = { versions: [first] };
+    } else if (resource === "upload-init") {
+      expect(request.postDataJSON()).toMatchObject({ sizeBytes: latest.sizeBytes, sha256: latest.sha256 });
+      operations.push("stage");
+      json = { uploadId, uploadUrl: backend + `/storage/v1/object/upload/sign/lesson-staging/uploads/${uploadId}.html?token=local-test-grant`,
+        expiresAt: new Date(Date.now() + 600_000).toISOString() };
+    } else if (method === "PUT" && url.pathname.includes(uploadId)) {
+      expect(request.postDataBuffer()).toEqual(Buffer.from(body));
+      operations.push("put");
+      json = {};
+    } else if (resource === "upload-finalize") {
+      expect(request.postDataJSON()).toEqual({ uploadId });
+      operations.push("validate");
+      json = { version: latest };
+    } else if (resource === "publish" || resource === "unpublish") {
+      const input = request.postDataJSON();
+      expect(input.expectedUpdatedAt).toBe(draft.updatedAt);
+      operations.push(resource === "publish" ? input.versionId : "hide");
+      draft = resource === "publish" ? { ...draft, status: "published", activeVersionId: input.versionId, publishedAt: now }
+        : { ...draft, status: "unpublished" };
+      json = { lesson: draft };
+    } else if (resource === "devices") {
+      json = { devices: [device] };
+    } else if (resource === "pairing-codes") {
+      operations.push("code");
+      json = { code: "ABCDE-FG234", expiresAt: new Date(Date.now() + 60_000).toISOString() };
+    } else if (resource === "revoke") {
+      operations.push("revoke");
+      json = { device: { ...device, revokedAt: now } };
+    } else { await route.fallback(); return; }
+    await route.fulfill({ headers, json });
+  });
+  await page.goto(admin);
+  await page.getByLabel("E-mail").fill("operator@example.invalid");
+  await page.getByLabel("Hasło").fill("fixture-password");
+  await page.getByRole("button", { name: "Zaloguj", exact: true }).click();
+  await expect(page.getByText("Nie ma jeszcze lekcji.")).toBeVisible();
+  await page.getByRole("button", { name: "Nowa lekcja" }).click();
+  await page.getByRole("textbox", { name: "Tytuł" }).fill(draft.title);
+  await page.locator(".create-lesson").getByRole("combobox", { name: /^Przedmiot/ }).selectOption(subject.id);
+  await page.getByRole("button", { name: "Zapisz szkic" }).click();
+  await expect(page.getByRole("heading", { name: draft.title, exact: true })).toBeVisible();
+  await page.getByLabel("Plik HTML").setInputFiles({ name: "lekcja.html", mimeType: "text/html", buffer: Buffer.from(body) });
+  await page.getByRole("button", { name: "Prześlij i sprawdź" }).click();
+  await expect(page.getByText("Plik przeszedł walidację. Zapisano wersję.")).toBeVisible();
+  await page.getByRole("button", { name: "Opublikuj tę wersję" }).click();
+  await expect(page.getByText("Opublikowano wersję lekcji.")).toBeVisible();
+  await page.getByRole("button", { name: "Historia wersji" }).click();
+  await page.getByRole("article", { name: "Wersja 1" }).getByRole("button", { name: "Opublikuj tę wersję" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Opublikuj wersję" }).click();
+  await expect(page.getByText("Aktywna wersja: 1")).toBeVisible();
+  await page.getByRole("button", { name: "Wróć do danych lekcji" }).click();
+  await page.getByRole("button", { name: "Ukryj lekcję" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Ukryj lekcję" }).click();
+  await expect(page.getByText("Ukryto lekcję.")).toBeVisible();
+  await page.getByRole("button", { name: "Rodziny i urządzenia" }).click();
+  await page.getByRole("button", { name: "Wygeneruj kod" }).click();
+  await expect(page.locator("output")).toHaveText("ABCDE-FG234");
+  await page.getByRole("button", { name: "Ukryj kod" }).click();
+  await expect(page.locator("output")).toHaveCount(0);
+  await page.getByRole("button", { name: "Unieważnij dostęp" }).click();
+  await expect(page.getByRole("dialog")).toContainText("nie można zdalnie usunąć");
+  await page.getByRole("dialog").getByRole("button", { name: "Unieważnij dostęp" }).click();
+  await expect(page.getByText(/Dostęp cofnięty:/)).toBeVisible();
+  expect(operations).toEqual(["draft", "stage", "put", "validate", latest.id, first.id, "hide", "code", "revoke"]);
 });

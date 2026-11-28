@@ -18,6 +18,9 @@ export default defineConfig(({ mode }) => {
       fs: { deny: [".env", ".env.*", "*.{crt,pem}", "**/.git/**", "**/fixtures/**"] },
     },
     plugins: [...shell.plugins, ...(origin ? [] : [localMockGateway(4173)]),
-      pwaWorker("src/sw.ts", wrapper, ["/", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"])],
+      pwaWorker("src/sw.ts", wrapper, [
+        "/", "/icons/bright-pages.svg", "/favicon.svg", "/favicon.ico",
+        "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png", "/icons/icon-maskable-192.png", "/icons/icon-maskable-512.png"
+      ])],
   };
 });

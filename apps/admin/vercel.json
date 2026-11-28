@@ -94,7 +94,7 @@
       "continue": true
     },
     {
-      "src": "^/(?:manifest\\.webmanifest|icons/icon-(?:192|512)\\.png)$",
+      "src": "^/(?:manifest\\.webmanifest|favicon\\.(?:svg|ico)|icons/bright-pages\\.svg|icons/icon-(?:maskable-)?(?:192|512)\\.png)$",
       "methods": [
         "GET",
         "HEAD"

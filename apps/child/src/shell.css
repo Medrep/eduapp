@@ -128,7 +128,7 @@ button:disabled { cursor: default; }
   font-weight: 700;
 }
 .child-brand h1 { font: inherit; }
-.brand-mark, .icon-tile {
+.icon-tile {
   display: inline-grid;
   flex: none;
   place-content: center;
@@ -139,9 +139,8 @@ button:disabled { cursor: default; }
   background: var(--primary-soft);
 }
 
-.brand-mark { color: var(--surface); background: var(--primary); }
-.child-header .brand-mark { inline-size: 36px; block-size: 36px; border-radius: 10px; }
-.child-header .brand-mark svg { inline-size: 20px; block-size: 20px; }
+.brand-mark { display: block; flex: none; }
+.child-header .brand-mark { inline-size: 36px; block-size: 36px; }
 .header-back { justify-content: flex-start; text-align: start; gap: 20px; color: inherit; font-size: 1.25rem; line-height: 1.75rem; font-weight: 700; }
 .header-back svg { color: var(--primary); }
 .settings-button { flex: none; inline-size: 48px; padding-inline: 0; }

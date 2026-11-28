@@ -76,7 +76,7 @@ export function vercelStagingConfig(role: ViewerRole) {
         continue: true,
       },
       {
-        src: "^/(?:manifest\\.webmanifest|icons/icon-(?:192|512)\\.png)$",
+        src: "^/(?:manifest\\.webmanifest|favicon\\.(?:svg|ico)|icons/bright-pages\\.svg|icons/icon-(?:maskable-)?(?:192|512)\\.png)$",
         methods: ["GET", "HEAD"],
         headers: { ...securityHeaders, "Cache-Control": "no-cache" },
         continue: true,
@@ -105,8 +105,9 @@ function emitRole(root: string, role: ViewerRole, publishableKey: string) {
     .map(entry => join(entry.parentPath.slice(staticDir.length), entry.name).replace(/^\//, ""))
     .sort();
   const expected = [
-    "index.html", "sw.js", wrapper.path.slice(1),
-    ...(role === "child" ? ["manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png"] : []),
+    "index.html", "sw.js", wrapper.path.slice(1), "favicon.ico", "favicon.svg", "icons/bright-pages.svg",
+    ...(role === "child" ? ["manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png",
+      "icons/icon-maskable-192.png", "icons/icon-maskable-512.png"] : []),
   ];
   assert.ok(expected.every(file => files.includes(file)), role + " static inventory is incomplete");
   assert.ok(files.every(file => expected.includes(file) || versionedAsset.test(file)), role + " includes unexpected output");

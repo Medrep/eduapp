@@ -15,7 +15,7 @@ function plural(count: number, one: string, few: string, many: string) {
 export function Brand({ heading = false }: { heading?: boolean }) {
   const Label = heading ? "h1" : "span";
   return <div className="child-brand">
-    <span className="brand-mark"><Icon name="book" /></span>
+    <img className="brand-mark" src="/icons/bright-pages.svg" alt="" width="48" height="48" />
     <Label id={heading ? "library-heading" : undefined} tabIndex={heading ? -1 : undefined}>Moja Nauka</Label>
   </div>;
 }

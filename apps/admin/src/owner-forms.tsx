@@ -1,3 +1,4 @@
+import { useConfirmation } from "./admin-ui.tsx";
 import { useState, type FormEvent } from "react";
 import {
   type AdminLesson, type AdminSubject, type Family, type LessonInput, type SubjectInput, type Visibility,
@@ -15,9 +16,10 @@ export function formText(form: FormData, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-export function LessonForm({ lesson, subjects, families, busy, save }: {
-  lesson?: AdminLesson; subjects: AdminSubject[]; families: Family[]; busy: boolean; save: (input: LessonInput) => void;
+export function LessonForm({ lesson, subjects, families, busy, save, onDirty }: {
+  lesson?: AdminLesson; subjects: AdminSubject[]; families: Family[]; busy: boolean; save: (input: LessonInput) => void; onDirty?: () => void;
 }) {
+  const confirmation = useConfirmation();
   const [scope, setScope] = useState<Visibility>(lesson?.visibility ?? "selected");
   const enabledFamilies = families.filter(family => family.enabled);
   const defaultFamilies = lesson?.familyIds ?? enabledFamilies.filter(family => family.id === ownerFamilyId).map(family => family.id);
@@ -28,24 +30,32 @@ export function LessonForm({ lesson, subjects, families, busy, save }: {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const grade = formText(form, "grade");
-    save({
+    const input: LessonInput = {
       title: formText(form, "title"), subjectId: formText(form, "subjectId"),
       description: formText(form, "description") || null, grade: grade ? Number(grade) : null,
       visibility: scope, familyIds: scope === "all" ? [] : assignments,
+    };
+    if (scope === "all") confirmation.confirm({
+      title: "Udostępnić wszystkim rodzinom?",
+      detail: lesson?.status === "published"
+        ? "Zmiana widoczności opublikowanej lekcji może dotrzeć do urządzeń po synchronizacji."
+        : "Po publikacji lekcja będzie dostępna dla wszystkich aktywnych rodzin.",
+      label: "Zapisz dla wszystkich rodzin", action: () => save(input),
     });
+    else save(input);
   }
 
-  return <form onSubmit={submit} className="stack-form">
+  return <><form onSubmit={submit} onChange={onDirty} className="stack-form lesson-form">
     <label>Tytuł<input name="title" required maxLength={120} defaultValue={lesson?.title ?? ""} /></label>
-    <label>Przedmiot<select name="subjectId" required defaultValue={lesson?.subjectId ?? ""}>
+    <div className="lesson-fields"><label>Przedmiot<select name="subjectId" required defaultValue={lesson?.subjectId ?? ""}>
       <option value="">Wybierz przedmiot</option>
       {selectableSubjects.map(subject => <option key={subject.id} value={subject.id}>{subject.namePl}</option>)}
     </select></label>
-    <label>Opis<textarea name="description" maxLength={500} defaultValue={lesson?.description ?? ""} /></label>
-    <label>Klasa<select name="grade" defaultValue={lesson?.grade ?? ""}>
+    <label>Klasa (opcjonalnie)<select name="grade" defaultValue={lesson?.grade ?? ""}>
       <option value="">Bez oznaczenia</option>
       {[1, 2, 3, 4, 5, 6, 7, 8].map(grade => <option key={grade} value={grade}>{grade}</option>)}
-    </select></label>
+    </select></label></div>
+    <label>Opis (opcjonalnie)<textarea name="description" maxLength={500} defaultValue={lesson?.description ?? ""} /></label>
     <label>Udostępnij<select value={scope} onChange={event => setScope(event.target.value === "all" ? "all" : "selected")}>
       <option value="selected">Wybrane rodziny</option><option value="all">Wszystkie rodziny</option>
     </select></label>
@@ -62,7 +72,7 @@ export function LessonForm({ lesson, subjects, families, busy, save }: {
     <button type="submit" className="primary" disabled={busy || !selectableSubjects.length}>
       {lesson ? "Zapisz zmiany" : "Zapisz szkic"}
     </button>
-  </form>;
+  </form>{confirmation.dialog}</>;
 }
 
 export function SubjectForm({ subject, busy, save }: {

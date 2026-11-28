@@ -4,10 +4,10 @@ import { ProofFrame } from "../../../scripts/proof-frame.tsx";
 import { controllingProofWorker } from "../../../scripts/register-proof-worker.ts";
 import { deletePreview, readPreview, savePreview } from "./preview-store.ts";
 
-type Version = Integrity & { id: string };
+type Version = Integrity & { id: string; versionNumber: number };
 type Preview = Awaited<ReturnType<typeof savePreview>> & { version: Version };
 
-export function useLessonPreview(ready: boolean) {
+export function useLessonPreview(ready: boolean, title: string) {
   const stored = useRef<Preview | undefined>(undefined);
   const active = useRef(true);
   const pending = useRef<symbol | undefined>(undefined);
@@ -129,10 +129,12 @@ export function useLessonPreview(ready: boolean) {
     prepare, show,
     panel: <>
       {error && <p role="alert">{error}</p>}
-      {visible && <section ref={previewPanel} className="panel" aria-label="Podgląd lekcji">
-        <h3>Podgląd lekcji</h3>
-        <p>Widok w przeglądarce może różnić się od widoku na urządzeniu dziecka.</p>
-        <button ref={closeButton} type="button" onClick={() => void close()}>Zamknij podgląd</button>
+      {visible && <section ref={previewPanel} className="admin-preview" aria-label="Podgląd lekcji">
+        <header className="admin-preview-toolbar">
+          <button ref={closeButton} type="button" onClick={() => void close()}>Zamknij podgląd</button>
+          <div><h3>{title} · Wersja {visible.version.versionNumber}</h3>
+            <p>Widok w przeglądarce może różnić się od widoku na urządzeniu dziecka.</p></div>
+        </header>
         {ready && <ProofFrame title="Podgląd lekcji" read={read} onUnavailable={unavailable} isEligible={eligible} />}
       </section>}
     </>,

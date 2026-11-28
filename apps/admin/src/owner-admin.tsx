@@ -4,7 +4,9 @@ import { observeWorker } from "../../../scripts/register-proof-worker.ts";
 import { AdminError, adminApi, signIn, signOut, type Session } from "./admin-api.ts";
 import { FamilyDevices } from "./family-devices.tsx";
 import { LessonEditor } from "./lesson-editor.tsx";
-import { dateLabel, formText, LessonForm, lessonStatus, SubjectForm } from "./owner-forms.tsx";
+import { formText, LessonForm, SubjectForm } from "./owner-forms.tsx";
+import { Brand, Icon, useConfirmation } from "./admin-ui.tsx";
+import { LessonLibrary } from "./lesson-library.tsx";
 import { maintainPreviewExpiry } from "./preview-store.ts";
 
 type View = "lessons" | "subjects" | "families";
@@ -100,14 +102,15 @@ export function OwnerAdmin() {
     onLogout={() => void logout(session)} onDenied={detail => endSession(session, detail)} />;
 
   return <main className="admin admin-login">
-    <h1 ref={loginHeading} tabIndex={-1}>Panel administratora</h1>
+    <Brand heading={loginHeading} />
     <form className="panel stack-form" onSubmit={event => void login(event)}>
-      <h2>Zaloguj się</h2>
+      <div className="login-intro"><h2>Zaloguj się</h2><p>Zarządzaj lekcjami i dostępem do biblioteki.</p></div>
       <label>E-mail<input name="email" type="email" autoComplete="username" required /></label>
       <label>Hasło<input name="password" type="password" autoComplete="current-password" required /></label>
       <button type="submit" className="primary" disabled={busy}>Zaloguj</button>
       {busy && <p role="status">Trwa przetwarzanie…</p>}
-      {error && <p role="alert">{error}</p>}
+      {error && <p className="notice error" role="alert">{error}</p>}
+      <p className="login-note">Panel jest dostępny wyłącznie dla uprawnionego administratora.</p>
     </form>
   </main>;
 }
@@ -126,8 +129,10 @@ function Dashboard({ session, previewReady, onLogout, onDenied }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
-  const [query, setQuery] = useState("");
+  const [dirty, setDirty] = useState(false);
+  const confirmation = useConfirmation();
   const actionRunning = useRef(false);
+  const loadedRef = useRef(false);
   const dashboardHeading = useRef<HTMLHeadingElement>(null);
   const previousRoute = useRef({ view, selection });
   const denied = useRef(onDenied);
@@ -171,7 +176,7 @@ function Dashboard({ session, previewReady, onLogout, onDenied }: {
   }, [reportError, session]);
 
   const refresh = useCallback(async () => {
-    await run(async () => {
+    const refreshed = await run(async () => {
       const [newSubjects, newLessons, newFamilies, newDevices] = await Promise.all([
         api.subjects(), api.lessons(), api.families(), api.devices(),
       ]);
@@ -180,9 +185,16 @@ function Dashboard({ session, previewReady, onLogout, onDenied }: {
       setFamilies(newFamilies);
       setDevices(newDevices);
       setLoaded(true);
-    });
+    }, loadedRef.current ? "Dane zostały odświeżone." : "");
+    if (refreshed) loadedRef.current = true;
   }, [api, run]);
   useEffect(() => { void refresh(); }, [refresh]);
+
+  function leave(action: () => void) {
+    if (!dirty) { action(); return; }
+    confirmation.confirm({ title: "Odrzucić niezapisane zmiany?", detail: "Zmiany w formularzu nie zostały zapisane.",
+      label: "Odrzuć zmiany", action: () => { setDirty(false); action(); } });
+  }
 
   function navigate(next: View) {
     setView(next);
@@ -196,91 +208,104 @@ function Dashboard({ session, previewReady, onLogout, onDenied }: {
   const onSubject = (subject: AdminSubject) => setSubjects(current => upsert(current, subject));
   const subject = subjects.find(item => selection === `id:${item.id}`);
   const lesson = lessons.find(item => selection === `id:${item.id}`);
-  const filter = query.trim().toLocaleLowerCase("pl");
-  const lessonRows = filter ? lessons.filter(item => item.title.toLocaleLowerCase("pl").includes(filter)) : lessons;
+  const tabs = [
+    { name: "lessons", icon: "book", label: "Lekcje" },
+    { name: "subjects", icon: "grid", label: "Przedmioty" },
+    { name: "families", icon: "users", label: "Rodziny i urządzenia", short: "Rodziny" },
+  ] as const;
 
-  return <main className="admin">
-    <header className="admin-header">
-      <h1 ref={dashboardHeading} tabIndex={-1}>Panel administratora</h1>
-      <nav aria-label="Panel administratora" className="toolbar">
-        <button type="button" aria-current={view === "lessons" ? "page" : undefined} disabled={!loaded || busy}
-          onClick={() => navigate("lessons")}>Lekcje</button>
-        <button type="button" aria-current={view === "subjects" ? "page" : undefined} disabled={!loaded || busy}
-          onClick={() => navigate("subjects")}>Przedmioty</button>
-        <button type="button" aria-current={view === "families" ? "page" : undefined} disabled={!loaded || busy}
-          onClick={() => navigate("families")}>Rodziny i urządzenia</button>
-        <button type="button" onClick={onLogout}>Wyloguj</button>
-      </nav>
+  return <main className="admin admin-workspace">
+    <header className="admin-navigation">
+      <aside className="admin-sidebar">
+        <Brand heading={dashboardHeading} />
+        <nav aria-label="Panel administratora" className="admin-tabs">
+          {tabs.map(tab => <button key={tab.name} type="button" aria-label={tab.label}
+            aria-current={view === tab.name ? "page" : undefined} disabled={!loaded || busy}
+            onClick={() => leave(() => navigate(tab.name))}>
+            <Icon name={tab.icon} /><span className={"short" in tab ? "only-wide" : undefined}>{tab.label}</span>
+            {"short" in tab && <span className="only-narrow">{tab.short}</span>}
+          </button>)}
+        </nav>
+        <button className="admin-logout" type="button" onClick={onLogout}><Icon name="logout" />Wyloguj</button>
+      </aside>
+      <div className="admin-topbar">
+        <span>Panel administratora</span>
+        <button type="button" className="admin-refresh" aria-label="Odśwież dane" onClick={() => void refresh()} disabled={busy}>
+          <Icon name="refresh" /><span>Odśwież dane</span>
+        </button>
+      </div>
     </header>
-    <div className="toolbar">
-      <button type="button" onClick={() => void refresh()} disabled={busy}>Odśwież dane</button>
-      {busy && <span role="status">Trwa przetwarzanie…</span>}
-    </div>
-    {error && <p className="notice error" role="alert">{error}</p>}
-    {status && <p className="notice" role="status">{status}</p>}
 
-    {loaded && view === "lessons" && (lesson ? <LessonEditor key={lesson.id} api={api} lesson={lesson}
-      subjects={subjects} families={families} busy={busy} previewReady={previewReady} run={run} reportError={reportError}
-      onLesson={onLesson} onBack={() => setSelection(undefined)} /> : <section>
-      <h2 id={selection === "new" ? undefined : "admin-view-heading"} tabIndex={-1}>Lekcje</h2>
-      {selection === "new" ? <div className="panel">
-        <h3 id="admin-view-heading" tabIndex={-1}>Nowa lekcja</h3>
-        <LessonForm subjects={subjects} families={families} busy={busy} save={input => void run(async () => {
-          const created = await api.createLesson(input);
-          onLesson(created);
-          setSelection(`id:${created.id}`);
-        }, "Zapisano szkic.")} />
-        <button type="button" disabled={busy} onClick={() => setSelection(undefined)}>Anuluj</button>
-      </div> : <div className="toolbar">
-        <button type="button" className="primary" disabled={busy} onClick={() => setSelection("new")}>Nowa lekcja</button>
-        <label>Szukaj lekcji<input type="search" value={query} onChange={event => setQuery(event.target.value)} /></label>
-      </div>}
-      <div className="card-list">
-        {lessonRows.map(item => <article className="panel" key={item.id} aria-label={item.title}>
-          <h3>{item.title}</h3>
-          <p>{subjects.find(entry => entry.id === item.subjectId)?.namePl ?? "Przedmiot niedostępny"}
-            {item.grade === null ? "" : ` · Klasa ${item.grade}`}</p>
-          <p>{lessonStatus[item.status]}{item.status === "published" ? ` · ${dateLabel(item.publishedAt)}` : ""}</p>
-          {item.status === "published" && item.activeVersionId && <p>Identyfikator aktywnej wersji <code>{item.activeVersionId}</code></p>}
-          <p>{item.visibility === "all" ? "Wszystkie rodziny" : families.filter(family => item.familyIds.includes(family.id))
-            .map(family => family.label).join(", ") || "Brak przypisanych rodzin"}</p>
-          <button type="button" disabled={busy} onClick={() => setSelection(`id:${item.id}`)}>Edytuj lekcję</button>
-        </article>)}
-      </div>
-      {!lessonRows.length && <p>{filter ? "Nie ma lekcji pasujących do wyszukiwania." : "Nie ma jeszcze lekcji."}</p>}
-    </section>)}
+    <div className="admin-content">
+      {busy && <p className="notice" role="status">{loaded ? "Trwa przetwarzanie…" : "Pobieranie danych…"}</p>}
+      {error && <p className="notice error" role="alert">{error}</p>}
+      {status && <p className="notice success" role="status">{status}</p>}
 
-    {loaded && view === "subjects" && <section>
-      <h2 id={subject ? undefined : "admin-view-heading"} tabIndex={-1}>Przedmioty</h2>
-      <div className="panel">
-        <h3 id={subject ? "admin-view-heading" : undefined} tabIndex={-1}>
-          {subject ? `Edytuj: ${subject.namePl}` : "Nowy przedmiot"}
-        </h3>
-        <SubjectForm key={subject ? `${subject.id}:${subject.namePl}:${subject.slug}:${subject.sortOrder}` : "new"} busy={busy}
-          {...(subject ? { subject } : {})} save={input => void run(async () => {
-            const { namePl, sortOrder } = input;
-            onSubject(await (subject ? api.saveSubject(subject.id, { namePl, sortOrder }) : api.createSubject(input)));
-            setSelection(undefined);
-          }, "Zapisano przedmiot.")} />
-        {subject && <button type="button" disabled={busy} onClick={() => setSelection(undefined)}>Anuluj</button>}
-      </div>
-      <div className="card-list">
-        {subjects.map(item => <article className="panel" aria-label={item.namePl} key={item.id}>
-          <h3>{item.namePl}</h3>
-          <p>{item.slug} · Kolejność: {item.sortOrder}{item.archivedAt ? " · W archiwum" : ""}</p>
-          <div className="toolbar">
-            <button type="button" disabled={busy} onClick={() => setSelection(`id:${item.id}`)}>Edytuj przedmiot</button>
-            <button type="button" disabled={busy} onClick={() => void run(async () =>
-              onSubject(await api.saveSubject(item.id, { archived: !item.archivedAt })), "Zapisano przedmiot.")}>
-              {item.archivedAt ? "Przywróć przedmiot" : "Archiwizuj przedmiot"}
-            </button>
+      {loaded && view === "lessons" && <>
+        <div hidden={selection !== undefined}>
+          <LessonLibrary lessons={lessons} subjects={subjects} families={families} busy={busy} visible={!selection}
+            create={() => setSelection("new")} edit={id => setSelection(`id:${id}`)} />
+        </div>
+        {lesson && <LessonEditor key={lesson.id} api={api} lesson={lesson}
+          subjects={subjects} families={families} busy={busy} previewReady={previewReady} run={run} reportError={reportError}
+          onLesson={onLesson} onDirty={setDirty} onBack={() => leave(() => setSelection(undefined))} />}
+        {selection === "new" && <section className="create-lesson">
+          <div className="page-heading"><div><h2 id="admin-view-heading" tabIndex={-1}>Nowa lekcja</h2>
+            <p>Zapisz szkic, aby dodać plik HTML.</p></div>
+            <button type="button" disabled={busy} onClick={() => leave(() => setSelection(undefined))}>Anuluj</button>
           </div>
-        </article>)}
-      </div>
-    </section>}
+          <div className="panel">
+            <LessonForm subjects={subjects} families={families} busy={busy} onDirty={() => setDirty(true)}
+              save={input => void run(async () => {
+                const created = await api.createLesson(input);
+                onLesson(created);
+                setDirty(false);
+                setSelection(`id:${created.id}`);
+              }, "Zapisano szkic.")} />
+          </div>
+        </section>}
+      </>}
 
-    {loaded && view === "families" && <FamilyDevices api={api} families={families} devices={devices} busy={busy} run={run}
-      onFamily={family => setFamilies(current => upsert(current, family))}
-      onDevice={device => setDevices(current => upsert(current, device))} />}
+      {loaded && view === "subjects" && <section>
+        <div className="page-heading">
+          <div><h2 id={selection ? undefined : "admin-view-heading"} tabIndex={-1}>Przedmioty</h2>
+            <p>Organizuj lekcje według przedmiotów.</p></div>
+          {!selection && <button className="primary" type="button" disabled={busy} onClick={() => setSelection("new")}>
+            <Icon name="plus" />Nowy przedmiot</button>}
+        </div>
+        {selection && <div className="panel subject-form-panel">
+          <h3 id="admin-view-heading" tabIndex={-1}>{subject ? `Edytuj: ${subject.namePl}` : "Nowy przedmiot"}</h3>
+          <SubjectForm key={subject?.id ?? "new"} busy={busy} {...(subject ? { subject } : {})}
+            save={input => void run(async () => {
+              const { namePl, sortOrder } = input;
+              onSubject(await (subject ? api.saveSubject(subject.id, { namePl, sortOrder }) : api.createSubject(input)));
+              setSelection(undefined);
+            }, "Zapisano przedmiot.")} />
+          <button type="button" disabled={busy} onClick={() => setSelection(undefined)}>Anuluj</button>
+        </div>}
+        {subjects.length ? <ul className="entity-list panel">
+          {subjects.map(item => <li key={item.id}>
+            <div><h3>{item.namePl}</h3><p>{item.slug} · Kolejność: {item.sortOrder}</p>
+              <span className={`badge ${item.archivedAt ? "draft" : "published"}`}>{item.archivedAt ? "W archiwum" : "Aktywny"}</span></div>
+            <div className="toolbar">
+              <button type="button" disabled={busy} onClick={() => setSelection(`id:${item.id}`)}>Edytuj przedmiot</button>
+              <button type="button" disabled={busy} onClick={() => {
+                const archive = () => void run(async () =>
+                  onSubject(await api.saveSubject(item.id, { archived: !item.archivedAt })), "Zapisano przedmiot.");
+                if (item.archivedAt) archive();
+                else confirmation.confirm({ title: `Archiwizować przedmiot „${item.namePl}”?`,
+                  detail: "Archiwalny przedmiot nie pojawi się przy tworzeniu nowych lekcji.",
+                  label: "Archiwizuj przedmiot", action: archive });
+              }}>{item.archivedAt ? "Przywróć przedmiot" : "Archiwizuj przedmiot"}</button>
+            </div>
+          </li>)}
+        </ul> : <p className="panel">Nie ma jeszcze przedmiotów.</p>}
+      </section>}
+
+      {loaded && view === "families" && <FamilyDevices api={api} families={families} devices={devices} busy={busy} run={run}
+        onFamily={family => setFamilies(current => upsert(current, family))}
+        onDevice={device => setDevices(current => upsert(current, device))} />}
+    </div>
+    {confirmation.dialog}
   </main>;
 }
