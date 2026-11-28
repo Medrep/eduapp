@@ -111,8 +111,11 @@ function observeHome(context: BrowserContext, count: number) {
     document.addEventListener("submit", () => mark("bench-pair"), { capture: true });
     const update = () => {
       if (document.querySelector("main form input#code")) mark("bench-unpaired-home");
-      for (const paragraph of document.querySelectorAll('section[aria-label="Synchronizacja"] p')) {
-        const ready = /^Dostępne offline: (\d+) z (\d+)$/.exec(paragraph.textContent ?? "");
+      for (const summary of document.querySelectorAll("main.library-content .child-notice strong")) {
+        if (summary.textContent === "Brak pobranych lekcji" && document.querySelector(".subject-tile")) {
+          mark("bench-library-home");
+        }
+        const ready = /^Dostępne offline: (\d+) z (\d+)$/.exec(summary.textContent ?? "");
         if (!ready || Number(ready[2]) !== total) continue;
         mark("bench-library-home");
         if (Number(ready[1]) > 0 && !performance.getEntriesByName("bench-first-install").length) {
@@ -280,7 +283,8 @@ for (const scenario of [{ count: 100, withBodies: true }, { count: 1_000, withBo
       await context.setOffline(true);
       const response = await page.reload();
       expect(response?.fromServiceWorker()).toBe(true);
-      await expect(ready(page, installed, count)).toBeVisible({ timeout: 45_000 });
+      const offlineSummary = withBodies ? ready(page, installed, count) : page.getByText("Brak pobranych lekcji", { exact: true });
+      await expect(offlineSummary).toBeVisible({ timeout: 45_000 });
       const offlineMarks = await marks(page);
       const rendering = await measureRendering(page, count);
       const scrolling = await measureScroll(page);

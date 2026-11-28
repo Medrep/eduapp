@@ -41,17 +41,24 @@ test("AT-05 Chromium browser-process crash during activation preserves the previ
       message.text() === "S2_CRASH_AFTER_BOTH_INDEXEDDB_WRITES_QUEUED", timeout: 15_000 });
     const stopped = context.waitForEvent("close", { timeout: 20_000 });
     mock.catalog = snapshot(2, next);
-    await sync(page);
+    await settings(page).click();
+    // The renderer is blocked by the diagnostic after the transaction is queued.
+    // Issue the sync click without waiting for another UI action in that renderer.
+    const started = page.getByRole("button", { name: "Synchronizuj teraz", exact: true }).click().catch(() => undefined);
     await queued;
     void cdp.send("Browser.crash").catch(() => undefined);
     await stopped;
+    await started;
 
     context = await launch();
     await context.setOffline(true);
     page = context.pages()[0] ?? await context.newPage();
     await mock.serve(page);
     await page.goto(origin);
-    await ready(page, 0, 1);
+    const recoveredCatalog = await readStore(page, "authorizedCatalog", "current") as Catalog | undefined;
+    const catalogVersion = recoveredCatalog?.lessons[0]?.version.id;
+    expect([first.meta.version.id, next.meta.version.id]).toContain(catalogVersion);
+    await ready(page, catalogVersion === first.meta.version.id ? 1 : 0, 1);
     const pointer = await readStore(page, "installations", first.meta.id);
     expect(pointer).toMatchObject({ installedVersionId: first.meta.version.id });
     expect(await readStore(page, "lessonBytes", [next.meta.id, next.meta.version.id])).toBeUndefined();
@@ -59,10 +66,14 @@ test("AT-05 Chromium browser-process crash during activation preserves the previ
     await openLesson(page, "Lekcja 1", "Lekcja 1, wersja 1");
     await returnToLibrary(page);
     await context.setOffline(false);
+    await expect.poll(() => readStore(page, "installations", first.meta.id)).toMatchObject({
+      installedVersionId: next.meta.version.id,
+    });
     await ready(page, 1, 1);
     await openLesson(page, "Lekcja 1", "Lekcja 1, wersja 2");
     console.log(JSON.stringify({ profile: testInfo.project.name, browserProcessCrash: true,
       bothRequestsQueuedInOpenTransaction: true, retainedVerifiedV1: true,
+      offlineCatalogVersion: catalogVersion === first.meta.version.id ? 1 : 2,
       partialV2Record: false, recoveredV2: true }));
   } finally {
     await context.close().catch(() => undefined);

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { expect, test, type Page } from "@playwright/test";
 import { type Catalog, type Lesson } from "../../packages/contracts/src/device.ts";
 
@@ -118,7 +119,16 @@ async function pair(page: Page) {
   await page.getByRole("button", { name: "Połącz urządzenie" }).click();
 }
 
+function settings(page: Page) {
+  return page.getByRole("button", { name: "Ustawienia i pomoc" });
+}
+
+function exitSettings(page: Page) {
+  return page.getByRole("button", { name: "Ustawienia — wróć" });
+}
+
 async function openSubject(page: Page) {
+  if (await exitSettings(page).isVisible()) await exitSettings(page).click();
   await page.getByRole("button", { name: /Przyroda/ }).click();
 }
 
@@ -138,11 +148,35 @@ async function returnToLibrary(page: Page) {
 }
 
 async function ready(page: Page, count: number, total: number) {
-  await expect(page.getByText(`Dostępne offline: ${count} z ${total}`, { exact: true })).toBeVisible();
+  if (await page.locator("#subject-heading").isVisible() || await exitSettings(page).isVisible()) {
+    const alreadyInSettings = await exitSettings(page).isVisible();
+    if (!alreadyInSettings) await settings(page).click();
+    await expect(page.locator(".settings-count")).toHaveText(`${count} / ${total}`);
+    if (!alreadyInSettings) await exitSettings(page).click();
+    return;
+  }
+  const offlineCount = page.getByText(`Dostępne offline: ${count} z ${total}`, { exact: true });
+  if (count === 0 && !await page.evaluate(() => navigator.onLine)) {
+    await expect(offlineCount.or(page.getByText("Brak pobranych lekcji", { exact: true }))).toBeVisible();
+  } else {
+    await expect(offlineCount).toBeVisible();
+  }
 }
 
 async function sync(page: Page) {
-  await page.getByRole("button", { name: /Synchronizuj teraz|Spróbuj ponownie/ }).click();
+  await settings(page).click();
+  await page.getByRole("button", { name: /^(Synchronizuj teraz|Spróbuj ponownie)$/ }).click();
+  await exitSettings(page).click();
+}
+
+async function reconnectReopenedPage(page: Page) {
+  await page.context().setOffline(false);
+  await expect.poll(() => page.evaluate(() => navigator.onLine)).toBe(true);
+  if (await page.getByText("Brak internetu", { exact: true }).isVisible()) {
+    // A Firefox page created offline may miss the DOM event when Playwright restores its context.
+    // Dispatch the current connectivity state only after the browser confirms online access.
+    await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  }
 }
 
 async function waitIdle(page: Page) {
@@ -179,7 +213,7 @@ test("UX-01 Polish child library fits a narrow enlarged layout and restores keyb
   await page.keyboard.press("Tab");
   await expect(codeInput).toBeFocused();
   expect(await codeInput.evaluate(element => getComputedStyle(element).outlineStyle)).toBe("solid");
-  const installation = page.locator("summary").filter({ hasText: "Instalacja aplikacji" });
+  const installation = page.locator("summary").filter({ hasText: "Instrukcja instalacji" });
   await installation.focus();
   await installation.press("Enter");
   await expect(page.getByText(/Instalacja jest opcjonalna/)).toBeVisible();
@@ -190,7 +224,7 @@ test("UX-01 Polish child library fits a narrow enlarged layout and restores keyb
   await pair(page);
   await ready(page, 8, 8);
   await expect(page.getByRole("heading", { name: "Moja Nauka" })).toBeFocused();
-  const subjectButton = page.getByRole("button", { name: /Przyroda Liczba lekcji: 8/ });
+  const subjectButton = page.getByRole("button", { name: /Przyroda 8 lekcji/ });
   await subjectButton.focus();
   await subjectButton.press("Enter");
   await expect(page.getByRole("heading", { name: "Przyroda" })).toBeFocused();
@@ -216,14 +250,117 @@ test("UX-01 Polish child library fits a narrow enlarged layout and restores keyb
   await back.press("Enter");
   await expect(subjectButton).toBeFocused();
 
-  await page.locator("summary").filter({ hasText: "Ustawienia i pomoc" }).click();
-  const reset = page.getByRole("button", { name: "Odłącz urządzenie i usuń pobrane lekcje" });
+  await page.getByRole("button", { name: "Ustawienia i pomoc" }).click();
+  const reset = page.getByRole("button", { name: "Odłącz urządzenie" });
   await reset.focus();
   await reset.press("Enter");
   const cancel = page.getByRole("button", { name: "Anuluj" });
   await expect(cancel).toBeFocused();
   await cancel.press("Escape");
   await expect(reset).toBeFocused();
+});
+
+test("UX-01 Child viewer fills the four design viewports and preserves the original lesson on rotation", async ({ page }, testInfo) => {
+  const original = await readFile(new URL("../../fixtures/rocks-soil.html", import.meta.url), "utf8");
+  const item = lesson(1, 1, original);
+  const longTitle = "Skały i gleba — powstawanie skał, rodzaje gleby oraz obieg materii w przyrodzie";
+  item.meta.title = longTitle;
+  item.meta.grade = null;
+  const mock = new DeviceFixture(item);
+  await mock.serve(page);
+  const viewports = [
+    { name: "portrait", width: 800, height: 1280 },
+    { name: "landscape", width: 1280, height: 800 },
+    { name: "mobile", width: 390, height: 844 },
+    { name: "minimum", width: 360, height: 780 },
+  ];
+  await page.setViewportSize(viewports[0]!);
+  await page.goto(origin);
+  await pair(page);
+  await ready(page, 1, 1);
+  await waitIdle(page);
+  await openSubject(page);
+  await expect(page.locator(".lesson-card")).toHaveCount(1);
+  await row(page, longTitle).getByRole("button", { name: "Otwórz lekcję" }).click();
+  const iframe = page.locator("iframe.proof-frame");
+  const frameElement = await iframe.elementHandle();
+  const nested = iframe.contentFrame().locator("iframe");
+  await expect(nested).toHaveAttribute("sandbox", "allow-scripts");
+  const nestedElement = await nested.elementHandle();
+  const content = nested.contentFrame();
+  await expect(content.locator(".slide.active")).toHaveCount(1);
+  for (let index = 0; index < 10; index += 1) await content.locator("#next").click();
+  await content.locator("#start-quiz").click();
+  await content.locator("[data-answer]").first().click();
+  const explanation = content.locator("#quiz-explain");
+  await expect(explanation).not.toBeEmpty();
+  const readingState = await explanation.textContent();
+
+  for (const { name, width, height } of viewports) {
+    await page.setViewportSize({ width, height });
+    await expect.poll(() => iframe.boundingBox()).toEqual({ x: 0, y: 56, width, height: height - 56 });
+    expect(await iframe.evaluate((current, initial) => current === initial, frameElement)).toBe(true);
+    expect(await nested.evaluate((current, initial) => current === initial, nestedElement)).toBe(true);
+    await expect(explanation).toHaveText(readingState ?? "");
+    const measurements = await page.evaluate(() => {
+      const toolbar = document.querySelector<HTMLElement>(".viewer > header")!;
+      const title = toolbar.querySelector("h1")!;
+      const { clientWidth, clientHeight, scrollWidth, scrollHeight } = document.documentElement;
+      return { toolbar: toolbar.offsetHeight, titleX: title.getBoundingClientRect().x,
+        ellipsis: getComputedStyle(title).textOverflow, clipped: title.scrollWidth > title.clientWidth,
+        overflow: [scrollWidth - clientWidth, scrollHeight - clientHeight], scroll: [window.scrollX, window.scrollY] };
+    });
+    expect(measurements).toMatchObject({ toolbar: 56, titleX: 168, ellipsis: "ellipsis", overflow: [0, 0], scroll: [0, 0] });
+    if (width < 400) expect(measurements.clipped).toBe(true);
+    await expect(page.getByRole("heading", { name: longTitle })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Wróć do biblioteki" })).toBeVisible();
+    await testInfo.attach(`viewer-geometry-${name}`, { body: JSON.stringify({ width, height, ...measurements }),
+      contentType: "application/json" });
+    if (process.env.EDUAPP_CHILD_UX_SCREENSHOTS) await page.screenshot({ path: testInfo.outputPath(`viewer-long-title-${name}.png`) });
+  }
+
+  await returnToLibrary(page);
+  await expect(row(page, longTitle).getByRole("button", { name: "Otwórz lekcję" })).toBeFocused();
+});
+
+test("UX-01 Child renders the subject grid and leaves paired lessons usable while downloads are pending", async ({ page }) => {
+  const available = lesson(1, 1);
+  const subjects = [subject, ...[
+    ["matematyka", "Matematyka"], ["jezyk-polski", "Język polski"], ["historia", "Historia"],
+    ["temat-dodatkowy", "Dodatkowy przedmiot o wyjątkowo długiej nazwie"],
+  ].map(([slug, namePl], index) => ({ id: id(20 + index), slug: slug!, namePl: namePl!, sortOrder: 2 + index }))];
+  const remaining = subjects.slice(1).map((entry, index) => {
+    const item = lesson(2 + index, 1);
+    item.meta.subjectId = entry.id;
+    return item;
+  });
+  const mock = new DeviceFixture(available, ...remaining);
+  mock.catalog.subjects = subjects;
+  const pending = deferred();
+  mock.beforeFile = async version => { if (version !== available.meta.version.id) await pending.wait; };
+  await mock.serve(page);
+  await page.goto(origin);
+  try {
+    await pair(page);
+    await ready(page, 1, 5);
+    const tiles = page.locator(".subject-tile");
+    await expect(tiles).toHaveCount(5);
+    await expect(tiles.last()).toHaveAttribute("data-subject", "inne");
+    for (const [width, height, columns] of [[800, 1280, 2], [1280, 800, 3], [390, 844, 1], [360, 780, 1]] as const) {
+      await page.setViewportSize({ width, height });
+      const actual = await tiles.evaluateAll(cards => new Set(cards.map(card => card.getBoundingClientRect().left)).size);
+      expect(actual).toBe(columns);
+    }
+    await settings(page).click();
+    await page.getByRole("button", { name: "Lekcje dostępne offline — postęp pobierania" }).click();
+    await expect(page.getByRole("progressbar")).toHaveAttribute("value", "1");
+    await expect(page.getByRole("button", { name: "Spróbuj ponownie" })).toBeDisabled();
+    await page.getByRole("button", { name: "Przejdź do biblioteki" }).click();
+    await openSubject(page);
+    await openLesson(page, "Lekcja 1", "Lekcja 1, wersja 1");
+  } finally {
+    pending.release();
+  }
 });
 
 async function readStore(page: Page, storeName: string, key: string | string[]) {
@@ -334,7 +471,7 @@ for (const fault of ["hash", "short", "large", "unavailable", "interrupted"] as 
     expect(mock.downloads.get(alpha2.meta.version.id)).toBe(3);
     expect(await readStore(page, "lessonBytes", [alpha2.meta.id, alpha2.meta.version.id])).toBeUndefined();
     await openSubject(page);
-    await expect(row(page, "Lekcja 1")).toContainText("starsza wersja");
+    await expect(row(page, "Lekcja 1")).toContainText("Starsza wersja dostępna offline.");
     await openLesson(page, "Lekcja 1", "Lekcja 1, wersja 1");
     await returnToLibrary(page);
     await openLesson(page, "Lekcja 2", "Lekcja 2, wersja 1");
@@ -374,7 +511,7 @@ test("AT-15 detects lost shell cache independently, restores it online and safel
   await pair(page);
   await ready(page, 1, 1);
   await waitIdle(page);
-  await page.getByText("Ustawienia i pomoc").click();
+  await page.getByRole("button", { name: "Ustawienia i pomoc" }).click();
   await expect(page.getByText(/Przeglądarka może usunąć zapisane dane/)).toBeVisible();
   await context.setOffline(true);
   const cacheRemoved = await page.evaluate(async () => {
@@ -384,7 +521,7 @@ test("AT-15 detects lost shell cache independently, restores it online and safel
   expect(cacheRemoved).toBe(true);
   // Allow one five-second health check interval and the worker's four-second response budget.
   await expect(page.getByText("Przygotowywanie trybu offline.", { exact: false })).toBeVisible({ timeout: 12_000 });
-  await expect(page.getByText("Dostępne offline: 1 z 1")).toHaveCount(0);
+  await expect(page.locator(".settings-count")).toHaveCount(0);
   expect(await readStore(page, "installations", item.meta.id)).toBeDefined();
   await openSubject(page);
   await expect(row(page, "Lekcja 1").getByRole("button", { name: "Otwórz lekcję" })).toBeDisabled();
@@ -421,9 +558,10 @@ test("AT-15 missing installed bytes fail closed and re-download instead of openi
   await ready(reopened, 0, 1);
   await openSubject(reopened);
   await expect(row(reopened, "Lekcja 1")).toContainText("Zapisana lekcja jest niedostępna.");
-  await expect(row(reopened, "Lekcja 1").getByRole("button", { name: "Otwórz lekcję" })).toBeDisabled();
+  await expect(row(reopened, "Lekcja 1").getByRole("button", { name: /Spróbuj ponownie pobrać lekcję/ })).toBeDisabled();
+  await expect(row(reopened, "Lekcja 1").getByRole("button", { name: "Otwórz lekcję" })).toHaveCount(0);
   await mock.serve(reopened);
-  await context.setOffline(false);
+  await reconnectReopenedPage(reopened);
   await sync(reopened);
   await ready(reopened, 1, 1);
   expect(mock.downloads.get(item.meta.version.id)).toBe(2);
@@ -452,9 +590,9 @@ test("AT-09/AT-17 reset clears child data across tabs and rejects an outstanding
   try {
     await sync(page);
     await expect.poll(() => mock.downloads.get(pending.meta.version.id)).toBe(1);
-    await peer.getByText("Ustawienia i pomoc").click();
+    await peer.getByRole("button", { name: "Ustawienia i pomoc" }).click();
     await peer.getByRole("button", { name: "Odłącz urządzenie" }).click();
-    await peer.getByRole("button", { name: "Usuń połączenie i lekcje" }).click();
+    await peer.getByRole("button", { name: "Odłącz i usuń lekcje" }).click();
     await expect(peer.getByRole("button", { name: "Połącz urządzenie" })).toBeVisible();
     gate.release();
     await expect(page.getByRole("button", { name: "Połącz urządzenie" })).toBeVisible();
@@ -708,7 +846,8 @@ test("AT-15 persistence grant and estimate are advisory and safe settings exclud
   await page.getByLabel("Nazwa urządzenia").fill("Tablet do nauki");
   await pair(page);
   await ready(page, 1, 1);
-  await page.getByText("Ustawienia i pomoc").click();
+  await page.getByRole("button", { name: "Ustawienia i pomoc" }).click();
+  await page.locator("summary").filter({ hasText: "Instrukcja instalacji" }).click();
   await expect(page.getByText("Przeglądarka nie przyznała trwałej pamięci.")).toBeVisible();
   await expect(page.getByText("Szacowane użycie pamięci: 2 MB.")).toBeVisible();
   await expect(page.getByText("Nazwa urządzenia: Tablet do nauki", { exact: true })).toBeVisible();
@@ -746,8 +885,9 @@ test("AT-07 foreground and reconnect trigger sync, unpaired offline explains fir
   mock.catalog = snapshot(3);
   await context.setOffline(false);
   await expect.poll(() => mock.catalogs).toBeGreaterThan(calls);
-  await ready(page, 0, 0);
-  await expect(page.getByText("Nie ma jeszcze lekcji. Poproś opiekuna o dodanie pierwszej.")).toBeVisible();
+  await expect(page.getByText("Nie ma jeszcze lekcji.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Poproś opiekuna o dodanie pierwszej.", { exact: true })).toBeVisible();
+  await expect(page.locator(".subject-list li")).toHaveCount(0);
   await expect(page.getByText("Wszystkie lekcje są dostępne offline")).toHaveCount(0);
 });
 
@@ -796,10 +936,11 @@ test("AT-16 same-size corrupted local bytes never retain ready status or mount",
   await ready(reopened, 0, 1);
   await openSubject(reopened);
   await expect(row(reopened, "Lekcja 1")).toContainText("Zapisana lekcja jest niedostępna.");
-  await expect(row(reopened, "Lekcja 1").getByRole("button", { name: "Otwórz lekcję" })).toBeDisabled();
+  await expect(row(reopened, "Lekcja 1").getByRole("button", { name: /Spróbuj ponownie pobrać lekcję/ })).toBeDisabled();
+  await expect(row(reopened, "Lekcja 1").getByRole("button", { name: "Otwórz lekcję" })).toHaveCount(0);
   await expect(reopened.locator("iframe.proof-frame")).toHaveCount(0);
   await mock.serve(reopened);
-  await context.setOffline(false);
+  await reconnectReopenedPage(reopened);
   await sync(reopened);
   await ready(reopened, 1, 1);
   await openLesson(reopened, "Lekcja 1", "Lekcja 1, wersja 1");
@@ -942,9 +1083,9 @@ test("AT-07 authorization denial persists across tabs and offline reopening unti
   mock.catalogStatus = 403;
   await sync(peer);
   await expect(peer.getByRole("alert")).toContainText(denial);
-  await peer.getByText("Ustawienia i pomoc").click();
+  await peer.getByRole("button", { name: "Ustawienia i pomoc" }).click();
   await peer.getByRole("button", { name: "Odłącz urządzenie" }).click();
-  await peer.getByRole("button", { name: "Usuń połączenie i lekcje" }).click();
+  await peer.getByRole("button", { name: "Odłącz i usuń lekcje" }).click();
   await expect(offline.getByRole("button", { name: "Połącz urządzenie" })).toBeVisible();
   await expect(offline.getByRole("alert")).toHaveCount(0);
   expect(await readStore(offline, "syncMeta", "status")).toBeUndefined();
@@ -994,9 +1135,9 @@ test("AT-17 a late library digest cannot repaint the previous identity after res
     });
     catalog.release();
     await expect.poll(() => page.evaluate(() => Reflect.get(window, "s2DigestObservation").started)).toBe(true);
-    await peer.getByText("Ustawienia i pomoc").click();
+    await peer.getByRole("button", { name: "Ustawienia i pomoc" }).click();
     await peer.getByRole("button", { name: "Odłącz urządzenie" }).click();
-    await peer.getByRole("button", { name: "Usuń połączenie i lekcje" }).click();
+    await peer.getByRole("button", { name: "Odłącz i usuń lekcje" }).click();
     await expect(page.getByRole("button", { name: "Połącz urządzenie" })).toBeVisible();
     mock.catalog = snapshot(1, newest);
     await pair(peer);
